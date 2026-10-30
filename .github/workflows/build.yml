@@ -1,0 +1,102 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    env:
+      DOTNET_ROLL_FORWARD: Major
+      ValheimDir: ${{ github.workspace }}/deps/valheim
+      Managed: ${{ github.workspace }}/deps/valheim/valheim_server_Data/Managed
+      BepInExDir: ${{ github.workspace }}/deps/BepInEx
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      # Each store is published to only when its secrets are set, so a new mod can start with one, both or neither
+      HAS_THUNDERSTORE: ${{ secrets.TCLI_AUTH_TOKEN != '' }}
+      HAS_NEXUS: ${{ secrets.NEXUSMODS_API_KEY != '' && secrets.NEXUSMODS_FILE_ID != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # non-tag builds take their version from the latest tag
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      # Re-download only when Valheim updates (new build id) or this workflow changes (e.g. BepInEx/Jotunn versions).
+      - name: Get Valheim server build id
+        id: steam
+        run: |
+          id=$(curl -fsSL https://api.steamcmd.net/v1/info/896660 | jq -r '.data["896660"].depots.branches.public.buildid') || id=""
+          [[ "$id" =~ ^[0-9]+$ ]] || id="unknown-$GITHUB_RUN_ID"
+          echo "buildid=$id" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: |
+            deps/valheim/valheim_server_Data/Managed
+            deps/BepInEx
+          key: deps-${{ steps.steam.outputs.buildid }}-${{ hashFiles('.github/workflows/build.yml') }}
+
+      # The dedicated server is free to download anonymously and ships the same game DLLs we compile against.
+      - name: Download Valheim dedicated server
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          dpkg -s lib32gcc-s1 >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -yq lib32gcc-s1; }
+          mkdir -p steamcmd && curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C steamcmd
+          # A freshly extracted steamcmd's first install often fails with "Missing configuration"; the next run in the
+          # same steamcmd folder succeeds. Its exit code is unreliable, so check for the DLL instead.
+          for i in 1 2 3; do
+            steamcmd/steamcmd.sh +force_install_dir "$ValheimDir" +login anonymous +app_update 896660 validate +quit || true
+            [ -f "$Managed/assembly_valheim.dll" ] && break
+          done
+          test -f "$Managed/assembly_valheim.dll" || { tail -n 50 ~/Steam/logs/content_log.txt ~/Steam/logs/stderr.txt; exit 1; }
+
+      - name: Download BepInEx and Jotunn
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o bep.zip https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2333/
+          curl -fsSL -o jotunn.zip https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.2/
+          unzip -q bep.zip -d bep
+          unzip -q jotunn.zip -d jotunn || [ $? -eq 1 ] # exit 1 = warnings only (the zip uses Windows backslashes)
+          mkdir -p "$BepInExDir/plugins/ValheimModding-Jotunn"
+          cp -r "$(find bep -type d -path '*BepInEx/core' | head -1)" "$BepInExDir/"
+          cp "$(find jotunn -name Jotunn.dll | head -1)" "$BepInExDir/plugins/ValheimModding-Jotunn/"
+
+      - run: ./package.sh
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }} # act 0.2.88's artifact server only speaks upload-artifact@v4
+        with:
+          name: package
+          path: build/*/*.zip
+
+      - name: Release info
+        id: release
+        if: startsWith(github.ref, 'refs/tags/v') && !env.ACT # never publish from a local act run
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "thunderstore_zip=$(ls build/thunderstore/*.zip)" >> "$GITHUB_OUTPUT"
+          echo "nexus_zip=$(ls build/nexus/*.zip)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Thunderstore
+        if: steps.release.outcome == 'success' && env.HAS_THUNDERSTORE == 'true'
+        env:
+          TCLI_AUTH_TOKEN: ${{ secrets.TCLI_AUTH_TOKEN }}
+        run: dotnet tcli publish --file "${{ steps.release.outputs.thunderstore_zip }}" --token "$TCLI_AUTH_TOKEN"
+
+      # Adds a new version to an existing file on the mod page; the page and its first file must be created by hand once.
+      - name: Publish to Nexus Mods
+        if: steps.release.outcome == 'success' && env.HAS_NEXUS == 'true'
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.11
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ secrets.NEXUSMODS_FILE_ID }}
+          filename: ${{ steps.release.outputs.nexus_zip }}
+          version: ${{ steps.release.outputs.version }}
+          archive_existing_version: true
+          update_mod_version: true

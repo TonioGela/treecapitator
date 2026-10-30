@@ -1,0 +1,4 @@
+bin/
+obj/
+build/
+local.props

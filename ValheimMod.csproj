@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Optional and gitignored: per-machine paths, e.g. to build against and deploy into an r2modman profile:
+       <Project><PropertyGroup>
+         <BepInExDir>$(HOME)/.config/r2modmanPlus-local/Valheim/profiles/YOUR_PROFILE/BepInEx</BepInExDir>
+       </PropertyGroup></Project> -->
+  <Import Project="local.props" Condition="Exists('local.props')" />
+  <PropertyGroup>
+    <!-- Your mod: DLL name, BepInEx plugin GUID and display name -->
+    <AssemblyName>MyMod</AssemblyName>
+    <PluginGuid>YourTeam.MyMod</PluginGuid>
+    <PluginName>My Mod</PluginName>
+
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ValheimDir Condition="'$(ValheimDir)' == ''">$(HOME)/.steam/steam/steamapps/common/Valheim</ValheimDir>
+    <BepInExDir Condition="'$(BepInExDir)' == ''">$(ValheimDir)/BepInEx</BepInExDir>
+    <Managed Condition="'$(Managed)' == ''">$(ValheimDir)/valheim_Data/Managed</Managed>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(Managed)/assembly_valheim.dll" Private="false" />
+    <Reference Include="$(Managed)/assembly_utils.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.AssetBundleModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)/core/BepInEx.dll" Private="false" />
+    <Reference Include="$(BepInExDir)/core/0Harmony.dll" Private="false" />
+    <Reference Include="$(BepInExDir)/plugins/ValheimModding-Jotunn/Jotunn.dll" Private="false" />
+  </ItemGroup>
+  <!-- Local dev: drop every build straight into the BepInEx folder, untracked by r2modman (CI sets CI=true) -->
+  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(CI)' != 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)/plugins/$(AssemblyName)-dev" />
+  </Target>
+  <!-- [BepInPlugin] needs compile-time constants, so turn the properties above and $(Version) (passed by package.sh) into them -->
+  <Target Name="GenerateModInfo" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)ModInfo.cs" Lines="static class ModInfo { public const string Guid = &quot;$(PluginGuid)&quot;%3B public const string Name = &quot;$(PluginName)&quot;%3B public const string Version = &quot;$(Version)&quot;%3B }" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)ModInfo.cs" />
+    </ItemGroup>
+  </Target>
+</Project>
