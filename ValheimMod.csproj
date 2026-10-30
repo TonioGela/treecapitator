@@ -6,9 +6,9 @@
   <Import Project="local.props" Condition="Exists('local.props')" />
   <PropertyGroup>
     <!-- Your mod: DLL name, BepInEx plugin GUID and display name -->
-    <AssemblyName>MyMod</AssemblyName>
-    <PluginGuid>YourTeam.MyMod</PluginGuid>
-    <PluginName>My Mod</PluginName>
+    <AssemblyName>Treecapitator</AssemblyName>
+    <PluginGuid>BrugherheimFolks.Treecapitator</PluginGuid>
+    <PluginName>Treecapitator</PluginName>
 
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>latest</LangVersion>

@@ -3,10 +3,10 @@ schemaVersion = "0.0.1"
 
 # The version is not set here: package.sh passes it (from the git tag) with --package-version.
 [package]
-namespace = "YourTeam"
-name = "My_Mod"
-description = "One sentence about what the mod does (max 250 characters)."
-websiteUrl = "https://github.com/YOUR_USER/YOUR_REPO"
+namespace = "BrugherheimFolks"
+name = "Treecapitator"
+description = "Adds the Treecapitator, a stone axe that fells any tree and breaks its stump in a single swing."
+websiteUrl = "https://github.com/TonioGela/treecapitator"
 containsNsfwContent = false
 
 [package.dependencies]
